@@ -46,11 +46,26 @@ The dashboard uses a consolidated 3-column responsive layout layout to maximize 
   - *Left Column (60% width)*: Renders the active category's SKU inventory cards side-by-side with a constrained (`h-[320px]`) competitive "Average Pricepoints" Bar Chart.
   - *Right Column (40% width)*: Integrates live KPI telemetry widgets alongside the "Key Takeaway" box.
 
+### Smart Action Recommendations Center
+A real-time logic engine that processes inventory datasets and issues actionable tasks:
+- **OOS / Low Stock Routing**: Flags depleted products and generates quick-action REST dispatch buttons.
+- **Price Optimization Algorithms**: Identifies shelf items deviating significantly (15%+) from category averages and provides a 1-click price alignment update.
+- **Category Audits**: Issues critical bulk-restock recommendations when category health falls below 70%.
+
+### Interactive Product Editor Drawer
+- **Sidebar Integration**: Clicking any product on the dashboard grid smoothly slides open a right-side drawer containing a product modifier form.
+- **Live State Mutation**: Emits HTTP `PUT` requests to the backend to manipulate pricing and out-of-stock statuses, instantly updating the frontend React state, chart displays, and recommendation queues.
+
+### Dynamic Telemetry & Sentiment Generation
+The dashboard continuously evolves during usage instead of relying strictly on static stubs:
+- **Dynamic KPI Delta Badges**: Real-time evaluation of `totalItems`, `oosRate`, and `lowStockItems` rendering contextual delta badges (e.g., `+5%` or `-2%`).
+- **Simulated Machine Vision Output**: Scanning the shelf mutates inventory and dynamically drifts the aggregated taste, price, and sustainability sentiment scores.
+
 ### Simulation Laser Scan Engine
 Replicates a real-time computer vision hardware sweep over physical store inventory:
 - Triggered by the "Run AI Shelf Scan" action.
 - Sweeps a vertical purple laser line animation (`animate-scan`) down the height of the product grid.
-- Cards trigger a staggered CSS `blur-wave` animation keyframe, simulating real-time focal realignment and visual capture.
+- Overlays dynamic target-lock bounding boxes and flashing analysis confidence intervals over cards specifically aligned with the laser scan position.
 
 ### Background CSV Data Pipeline
 Exposes data exports without disrupting operational workflows:
