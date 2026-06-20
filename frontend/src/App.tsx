@@ -94,6 +94,9 @@ export default function App() {
         
         setTimeout(() => {
           setShelfItems(data.updatedItems);
+          if (data.updatedSentiment) {
+            setSentimentData(data.updatedSentiment);
+          }
           setScanCount(c => c + 1);
           if (toastTimer.current) clearTimeout(toastTimer.current);
           const msg = changes.length > 0 ? `Scan detected: ${changes.join(', ')}` : 'Scan complete — no status changes detected';
@@ -200,6 +203,7 @@ export default function App() {
           scanStep={scanStep}
           scanCount={scanCount}
           handleShelfScan={handleShelfScan}
+          onShelfItemsUpdate={setShelfItems}
         />
       </main>
 

@@ -119,11 +119,58 @@ router.post('/analyze-shelf', (req, res) => {
       }
     });
 
+    // 4. Generate dynamic sentiment snapshot
+    const lastSentiment = sentimentSnapshots[sentimentSnapshots.length - 1];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const nextMonth = months[(months.indexOf(lastSentiment.date.split(' ')[0]) + 1) % 12];
+    const newSentiment = {
+      date: `${nextMonth} 2026`,
+      taste: Math.min(100, Math.max(0, lastSentiment.taste + (Math.floor(Math.random() * 5) - 2))),
+      price: Math.min(100, Math.max(0, lastSentiment.price + (Math.floor(Math.random() * 7) - 3))),
+      sustainability: Math.min(100, Math.max(0, lastSentiment.sustainability + (Math.floor(Math.random() * 5) - 1)))
+    };
+    sentimentSnapshots.push(newSentiment);
+
     res.json({
       success: true,
-      updatedItems: shelfItems
+      updatedItems: shelfItems,
+      updatedSentiment: sentimentSnapshots
     });
   }, 1500);
+});
+
+// PUT /shelf-item/:id
+router.put('/shelf-item/:id', (req, res) => {
+  const { id } = req.params;
+  const { price, oosStatus } = req.body;
+  const item = shelfItems.find(i => i.id === id);
+
+  if (!item) {
+    return res.status(404).json({ success: false, error: 'Product not found' });
+  }
+
+  if (typeof price === 'number') {
+    item.price = price;
+  }
+  if (oosStatus === 'in_stock' || oosStatus === 'low_stock' || oosStatus === 'out_of_stock') {
+    item.oosStatus = oosStatus;
+  }
+
+  res.json({ success: true, updatedItem: item, allItems: shelfItems });
+});
+
+// POST /bulk-restock
+router.post('/bulk-restock', (req, res) => {
+  const { category } = req.body;
+  const itemsToUpdate = category 
+    ? shelfItems.filter(i => i.category === category)
+    : shelfItems;
+
+  itemsToUpdate.forEach(item => {
+    item.oosStatus = 'in_stock';
+  });
+
+  res.json({ success: true, allItems: shelfItems });
 });
 
 export default router;

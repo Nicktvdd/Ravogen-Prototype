@@ -107,4 +107,31 @@ router.post('/analyze-shelf', (req, res) => {
         });
     }, 1500);
 });
+// PUT /shelf-item/:id
+router.put('/shelf-item/:id', (req, res) => {
+    const { id } = req.params;
+    const { price, oosStatus } = req.body;
+    const item = mockStore_1.shelfItems.find(i => i.id === id);
+    if (!item) {
+        return res.status(404).json({ success: false, error: 'Product not found' });
+    }
+    if (typeof price === 'number') {
+        item.price = price;
+    }
+    if (oosStatus === 'in_stock' || oosStatus === 'low_stock' || oosStatus === 'out_of_stock') {
+        item.oosStatus = oosStatus;
+    }
+    res.json({ success: true, updatedItem: item, allItems: mockStore_1.shelfItems });
+});
+// POST /bulk-restock
+router.post('/bulk-restock', (req, res) => {
+    const { category } = req.body;
+    const itemsToUpdate = category
+        ? mockStore_1.shelfItems.filter(i => i.category === category)
+        : mockStore_1.shelfItems;
+    itemsToUpdate.forEach(item => {
+        item.oosStatus = 'in_stock';
+    });
+    res.json({ success: true, allItems: mockStore_1.shelfItems });
+});
 exports.default = router;

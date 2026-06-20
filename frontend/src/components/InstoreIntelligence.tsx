@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, Sparkles } from 'lucide-react';
+import { Eye, Sparkles, X, Save, Edit } from 'lucide-react';
 import { ShelfItem } from '@ravogen/shared';
 
 interface Props {
@@ -10,22 +10,65 @@ interface Props {
   scanCount: number;
   handleShelfScan: () => void;
   activeCategory: string;
+  onShelfItemsUpdate: (items: ShelfItem[]) => void;
 }
+
+const API_BASE = 'http://localhost:5001';
 
 export default function InstoreIntelligence({
   shelfItems,
   isLoading,
   isScanning,
+  scanStep,
   scanCount,
   handleShelfScan,
-  activeCategory
+  activeCategory,
+  onShelfItemsUpdate
 }: Props) {
   const catItems = shelfItems.filter(i => i.category === activeCategory);
   const catInStock = catItems.filter(i => i.oosStatus === 'in_stock').length;
   const catHealth = catItems.length > 0 ? Math.round((catInStock / catItems.length) * 100) : 0;
 
+  // Edit Drawer state
+  const [activeEditItem, setActiveEditItem] = React.useState<ShelfItem | null>(null);
+  const [editPrice, setEditPrice] = React.useState<string>('');
+  const [editOosStatus, setEditOosStatus] = React.useState<string>('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const handleCardClick = (item: ShelfItem) => {
+    if (isScanning) return;
+    setActiveEditItem(item);
+    setEditPrice(item.price.toFixed(2));
+    setEditOosStatus(item.oosStatus);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeEditItem) return;
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/shelf-item/${activeEditItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          price: parseFloat(editPrice) || activeEditItem.price,
+          oosStatus: editOosStatus
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        onShelfItemsUpdate(data.allItems);
+        setActiveEditItem(null);
+      }
+    } catch (error) {
+      console.error('Failed to update product:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <section className="bg-white border border-slate-200/80 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-xl flex flex-col overflow-hidden relative">
+    <section className="bg-white border border-slate-200/80 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-xl flex flex-col overflow-hidden relative min-h-[500px]">
       {/* Immersive AI Vision Simulation Overlay */}
       {isScanning && (
         <div className="absolute inset-0 z-30 pointer-events-none overflow-hidden rounded-xl">
@@ -41,7 +84,7 @@ export default function InstoreIntelligence({
             <Eye className="w-5 h-5 text-ravo-lightpurple" />
             {activeCategory.toUpperCase()} - INSTORE
           </h2>
-          <p className="text-xs text-slate-500 mt-1">Real-time linear share-of-shelf and stock indicators</p>
+          <p className="text-xs text-slate-500 mt-1">Real-time linear share-of-shelf and stock indicators (Click card to edit)</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -117,12 +160,19 @@ export default function InstoreIntelligence({
                   const rowIdx = Math.floor(index / 2);
                   const blurDelay = rowIdx * 150;
                   
-                  const cardClasses = `card-glow bg-white border border-slate-200/80 shadow-sm rounded-xl p-4 hover:border-ravo-lightpurple/50 transition-all duration-300 flex flex-col justify-between group ${isScanning ? 'animate-blur-wave' : 'animate-card-enter'}`;
+                  const isCardScanning = isScanning && (
+                    (scanStep === 1 && (item.position === 1 || item.position === 2)) ||
+                    (scanStep === 2 && (item.position === 3 || item.position === 4)) ||
+                    (scanStep === 3 && (item.position === 5 || item.position === 6))
+                  );
+
+                  const cardClasses = `card-glow bg-white border border-slate-200/80 shadow-sm rounded-xl p-4 hover:border-ravo-lightpurple/50 cursor-pointer transition-all duration-300 flex flex-col justify-between group relative overflow-hidden ${isScanning ? 'animate-blur-wave' : 'animate-card-enter'}`;
 
                   return (
                     <div 
                       key={item.id} 
                       className={cardClasses}
+                      onClick={() => handleCardClick(item)}
                       style={{ animationDelay: isScanning ? `${blurDelay}ms` : `${index * 50}ms` }}
                       onMouseMove={(e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
                         const rect = e.currentTarget.getBoundingClientRect();
@@ -130,6 +180,17 @@ export default function InstoreIntelligence({
                         e.currentTarget.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
                       }}
                     >
+                      {/* Bounding box scanning overlay */}
+                      {isCardScanning && (
+                        <div className="absolute inset-0 bg-[#F3F6EB]/90 backdrop-blur-[1px] border-2 border-dashed border-ravo-lightpurple rounded-xl z-20 flex flex-col items-center justify-center p-2 animate-pulse">
+                          <span className="text-[10px] font-black text-ravo-purple uppercase tracking-widest flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 animate-spin text-ravo-lightpurple" />
+                            Analyzing
+                          </span>
+                          <span className="text-[8px] font-mono text-slate-500 mt-1">[Confidence: 94.7%]</span>
+                        </div>
+                      )}
+
                       <div className="flex items-start justify-between gap-3 relative z-10">
                         <div>
                           <div className="flex items-center gap-1.5">
@@ -143,9 +204,12 @@ export default function InstoreIntelligence({
                           <h4 className="font-bold text-sm text-ravo-purple mt-1.5">{item.name}</h4>
                           <p className="text-xs text-slate-500 mt-1 font-mono">${item.price.toFixed(2)}</p>
                         </div>
-                        <span className={`text-[9px] px-2 py-0.5 rounded font-bold shrink-0 transition-all duration-500 ${badgeClasses} ${item.oosStatus !== 'in_stock' ? 'badge-warning' : ''}`}>
-                          {badgeLabel}
-                        </span>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className={`text-[9px] px-2 py-0.5 rounded font-bold shrink-0 transition-all duration-500 ${badgeClasses} ${item.oosStatus !== 'in_stock' ? 'badge-warning' : ''}`}>
+                            {badgeLabel}
+                          </span>
+                          <Edit className="w-3.5 h-3.5 text-slate-300 group-hover:text-ravo-lightpurple transition-colors" />
+                        </div>
                       </div>
 
                       <div className="mt-5 relative z-10">
@@ -167,6 +231,89 @@ export default function InstoreIntelligence({
           </div>
         )}
       </div>
+
+      {/* Slide-out Edit Drawer */}
+      {activeEditItem && (
+        <>
+          <div 
+            className="absolute inset-0 bg-slate-900/10 backdrop-blur-sm z-40 transition-opacity duration-300"
+            onClick={() => setActiveEditItem(null)}
+          />
+          <div className="absolute top-0 right-0 h-full w-80 bg-white border-l border-slate-200 shadow-2xl z-50 flex flex-col p-6 animate-slide-left">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+              <h3 className="font-black text-ravo-purple text-sm tracking-tight uppercase">Edit Product Details</h3>
+              <button 
+                onClick={() => setActiveEditItem(null)}
+                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Brand</span>
+              <p className="text-xs font-semibold text-slate-700 mt-0.5">{activeEditItem.brand}</p>
+            </div>
+
+            <div className="mb-6">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Product Name</span>
+              <p className="text-sm font-bold text-ravo-purple mt-0.5">{activeEditItem.name}</p>
+            </div>
+
+            <form onSubmit={handleSave} className="flex-1 flex flex-col gap-5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Price ($)</label>
+                <input 
+                  type="number"
+                  step="0.01"
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-mono text-slate-800 focus:outline-none focus:border-ravo-lightpurple"
+                  required
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Stock Status</label>
+                <select 
+                  value={editOosStatus}
+                  onChange={(e) => setEditOosStatus(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg p-2.5 text-sm text-slate-800 focus:outline-none focus:border-ravo-lightpurple bg-white"
+                  required
+                >
+                  <option value="in_stock">In Stock</option>
+                  <option value="low_stock">Low Stock</option>
+                  <option value="out_of_stock">Out of Stock</option>
+                </select>
+              </div>
+
+              <div className="mt-auto flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveEditItem(null)}
+                  className="flex-1 py-2.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 py-2.5 bg-ravo-purple text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-ravo-purple/10 hover:shadow-lg hover:shadow-ravo-purple/20 transition-all duration-300"
+                >
+                  {isSubmitting ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
     </section>
   );
 }

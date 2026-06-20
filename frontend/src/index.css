@@ -103,6 +103,15 @@
   animation: slide-down 0.3s ease-in both;
 }
 
+@keyframes slide-left {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-left {
+  animation: slide-left 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ── Shimmer loading skeleton ── */
 @keyframes shimmer {
   0% {
