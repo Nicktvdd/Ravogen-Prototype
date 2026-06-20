@@ -1,32 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Sparkles, 
-  RefreshCw, 
-  BarChart3, 
-  Eye, 
-  AlertTriangle, 
-  CheckCircle2, 
-  TrendingUp, 
-  DollarSign, 
-  Leaf, 
-  Layers, 
-  Zap, 
-  Activity, 
-  Award,
-  ChevronRight,
-  Info
-} from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer 
-} from 'recharts';
-import { ShelfItem, SentimentSnapshot, OosStatus } from '@ravogen/shared';
+import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, RefreshCw, AlertTriangle, AlertCircle, Zap } from 'lucide-react';
+import { ShelfItem, SentimentSnapshot } from '@ravogen/shared';
+import Dashboard from './components/Dashboard';
 
 const API_BASE = 'http://localhost:5001';
 
@@ -37,8 +12,27 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [scanCount, setScanCount] = useState(0);
+  const [toast, setToast] = useState<{ message: string; visible: boolean; type?: 'error' } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isChaosModeActive, setIsChaosModeActive] = useState(false);
 
-  // Fetch initial data
+  const toggleChaosMode = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/toggle-chaos-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !isChaosModeActive })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsChaosModeActive(data.isChaosModeActive);
+      }
+    } catch (err) {
+      console.error('Failed to toggle chaos mode', err);
+    }
+  };
+
   const fetchData = async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
     setError(null);
@@ -69,12 +63,10 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Run AI shelf analysis
   const handleShelfScan = async () => {
     setIsScanning(true);
     setScanStep(1);
     
-    // Simulate steps in the overlay
     const stepIntervals = [
       setTimeout(() => setScanStep(2), 500),
       setTimeout(() => setScanStep(3), 1000)
@@ -86,86 +78,101 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      if (!res.ok) throw new Error('Shelf analysis failed');
+      if (!res.ok) throw new Error(`Shelf analysis failed: ${res.status}`);
 
       const data = await res.json();
       if (data.success) {
-        setShelfItems(data.updatedItems);
+        const oldStatuses = new Map(shelfItems.map(i => [i.id, i.oosStatus]));
+        const changes: string[] = [];
+        (data.updatedItems as ShelfItem[]).forEach((item: ShelfItem) => {
+          const prev = oldStatuses.get(item.id);
+          if (prev && prev !== item.oosStatus) {
+            const label = item.oosStatus === 'out_of_stock' ? 'Out of Stock' : item.oosStatus === 'low_stock' ? 'Low Stock' : 'In Stock';
+            changes.push(`${item.name} → ${label}`);
+          }
+        });
+        
+        setTimeout(() => {
+          setShelfItems(data.updatedItems);
+          setScanCount(c => c + 1);
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+          const msg = changes.length > 0 ? `Scan detected: ${changes.join(', ')}` : 'Scan complete — no status changes detected';
+          setToast({ message: msg, visible: true });
+          toastTimer.current = setTimeout(() => {
+            setToast(t => t ? { ...t, visible: false } : null);
+            setTimeout(() => setToast(null), 400);
+          }, 4500);
+        }, 800);
       }
     } catch (err: any) {
       console.error(err);
-      setError('AI Shelf Scan request failed.');
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast({ message: 'AI Shelf Scan Failed: Machine Vision Model Timeout.', visible: true, type: 'error' });
+      toastTimer.current = setTimeout(() => {
+        setToast(t => t ? { ...t, visible: false } : null);
+        setTimeout(() => setToast(null), 400);
+      }, 4500);
     } finally {
-      // Clear timers
       stepIntervals.forEach(clearTimeout);
-      setTimeout(() => {
+      if (isChaosModeActive) {
         setIsScanning(false);
         setScanStep(0);
-      }, 300);
+      } else {
+        setTimeout(() => {
+          setIsScanning(false);
+          setScanStep(0);
+        }, 1500);
+      }
     }
   };
 
-  // Group items by category
-  const categories = Array.from(new Set(shelfItems.map(item => item.category)));
-
-  // Calculate metrics
   const totalItems = shelfItems.length;
-  const oosItems = shelfItems.filter(item => item.oosStatus === 'out_of_stock').length;
-  const lowStockItems = shelfItems.filter(item => item.oosStatus === 'low_stock').length;
-  const oosRate = totalItems > 0 ? Math.round((oosItems / totalItems) * 100) : 0;
-  
-  // Custom Tooltip for Recharts
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-[#111827] border border-[#1f2937] p-3 rounded-lg shadow-xl">
-          <p className="text-xs text-slate-400 mb-2 font-semibold">{label}</p>
-          {payload.map((p: any) => (
-            <div key={p.name} className="flex items-center justify-between gap-6 text-xs mb-1">
-              <span className="flex items-center gap-1.5 font-medium" style={{ color: p.color }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
-                {p.name.charAt(0).toUpperCase() + p.name.slice(1)}:
-              </span>
-              <span className="text-slate-100 font-bold">{p.value}%</span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
+  const inStockItems = shelfItems.filter(item => item.oosStatus === 'in_stock').length;
+  const healthScore = totalItems > 0 ? Math.round((inStockItems / totalItems) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans antialiased selection:bg-brandIndigo-500 selection:text-white">
-      {/* Header */}
-      <header className="border-b border-[#1f2937] bg-[#0c1220]/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+    <div className="min-h-screen bg-ravo-cream text-ravo-midnight flex flex-col font-sans antialiased selection:bg-ravo-neon selection:text-ravo-midnight overflow-x-hidden">
+      <header className="border-b border-slate-200/50 bg-white/60 backdrop-blur-md sticky top-0 z-40 px-6 py-4">
+        <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brandIndigo-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brandIndigo-500/20">
-              <Zap className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-ravo-midnight flex items-center justify-center shadow-lg shadow-ravo-midnight/10">
+              <Zap className="w-5 h-5 text-ravo-neon" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xl font-bold tracking-tight text-white">RAVOGEN</span>
-                <span className="text-[10px] uppercase font-bold tracking-widest bg-brandIndigo-900/60 text-brandIndigo-300 px-2 py-0.5 rounded border border-brandIndigo-800/50">PROTOSYNC</span>
+                <span className="text-xl font-black tracking-tight text-ravo-midnight">RAVOGEN</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest bg-ravo-midnight/5 text-ravo-midnight px-2 py-0.5 rounded border border-ravo-midnight/10">2.0</span>
               </div>
-              <p className="text-xs text-slate-400">Enterprise FMCG Shelf & Sentiment Intelligence</p>
+              <p className="text-xs text-slate-500 font-medium">Enterprise FMCG Shelf & Sentiment Intelligence</p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Status indicator */}
-            <div className="flex items-center gap-2 bg-[#111827] px-3.5 py-1.5 rounded-lg border border-[#1f2937]">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${error ? 'bg-red-400' : 'bg-emerald-400'} opacity-75`}></span>
-                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${error ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Simulate Network Interruption
               </span>
-              <span className="text-xs font-semibold text-slate-300">{error ? 'API Disconnected' : 'System Operational'}</span>
+              <button 
+                onClick={toggleChaosMode}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-300 focus:outline-none ${isChaosModeActive ? 'bg-rose-500' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform duration-300 ${isChaosModeActive ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border shadow-sm ${isChaosModeActive ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
+              <span className="relative flex h-2.5 w-2.5">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isChaosModeActive || error ? 'bg-rose-400' : 'bg-emerald-500'} opacity-75`}></span>
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isChaosModeActive || error ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+              </span>
+              <span className={`text-xs font-semibold ${isChaosModeActive || error ? 'text-rose-700' : 'text-slate-600'}`}>
+                {isChaosModeActive ? 'API Offline / Interrupted' : error ? 'API Disconnected' : 'System Operational'}
+              </span>
             </div>
 
             <button 
               onClick={() => fetchData(true)}
-              className="p-2 bg-[#111827] border border-[#1f2937] rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-ravo-midnight hover:bg-slate-50 transition shadow-sm"
               title="Refresh Data"
             >
               <RefreshCw className="w-4 h-4" />
@@ -174,322 +181,49 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
-        {/* Error Callout */}
+      <main className="flex-1 max-w-[1400px] w-full mx-auto p-6 flex flex-col gap-6">
         {error && (
-          <div className="bg-red-950/40 border border-red-800/50 p-4 rounded-xl flex items-start gap-3 text-red-200">
-            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-start gap-3 text-red-800 shadow-sm">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
             <div>
               <h3 className="font-bold text-sm">Server Communication Fault</h3>
-              <p className="text-xs text-red-300/80 mt-1">{error}</p>
-              <button 
-                onClick={() => fetchData(true)}
-                className="mt-2.5 text-xs font-bold text-red-400 hover:text-red-300 flex items-center gap-1"
-              >
-                Retry connection <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+              <p className="text-xs text-red-700/80 mt-1">{error}</p>
             </div>
           </div>
         )}
 
-        {/* Dashboard KPI cards */}
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-[#111827] border border-[#1f2937] p-5 rounded-xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Total Tracked Products</p>
-              <h4 className="text-2xl font-bold text-white mt-1">{isLoading ? '—' : totalItems}</h4>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-indigo-950/50 text-indigo-400 flex items-center justify-center">
-              <Layers className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="bg-[#111827] border border-[#1f2937] p-5 rounded-xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Out-Of-Stock Rate</p>
-              <h4 className={`text-2xl font-bold mt-1 ${oosRate > 15 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {isLoading ? '—' : `${oosRate}%`}
-              </h4>
-            </div>
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${oosRate > 15 ? 'bg-red-950/50 text-red-400' : 'bg-emerald-950/50 text-emerald-400'}`}>
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="bg-[#111827] border border-[#1f2937] p-5 rounded-xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Low Stock Warnings</p>
-              <h4 className="text-2xl font-bold text-amber-400 mt-1">{isLoading ? '—' : lowStockItems}</h4>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-amber-950/50 text-amber-400 flex items-center justify-center">
-              <Activity className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="bg-[#111827] border border-[#1f2937] p-5 rounded-xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Avg Taste Sentiment</p>
-              <h4 className="text-2xl font-bold text-emerald-400 mt-1">
-                {isLoading || sentimentData.length === 0 ? '—' : `${sentimentData[sentimentData.length - 1].taste}%`}
-              </h4>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-emerald-950/50 text-emerald-400 flex items-center justify-center">
-              <Award className="w-5 h-5" />
-            </div>
-          </div>
-        </section>
-
-        {/* Dynamic Multi-view Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* Instore Intelligence View */}
-          <section className="lg:col-span-7 bg-[#111827] border border-[#1f2937] rounded-2xl flex flex-col overflow-hidden shadow-lg relative min-h-[500px]">
-            {/* Loading Overlay */}
-            {isScanning && (
-              <div className="absolute inset-0 bg-[#090d16]/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-6 text-center animate-fadeIn">
-                <div className="relative mb-6">
-                  <div className="w-16 h-16 rounded-full border-2 border-brandIndigo-500/20 border-t-brandIndigo-500 animate-spin" />
-                  <Sparkles className="w-6 h-6 text-brandIndigo-400 absolute inset-0 m-auto animate-pulse" />
-                </div>
-                <h3 className="text-lg font-bold text-white">AI Vision Analysis In Progress</h3>
-                
-                {/* Simulated AI steps */}
-                <div className="mt-4 max-w-xs w-full bg-[#111827] border border-[#1f2937] p-3.5 rounded-lg text-left text-xs font-mono space-y-2">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <span className="text-emerald-400">✓</span> Capture planogram feed...
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-300">
-                    {scanStep >= 2 ? <span className="text-emerald-400">✓</span> : <span className="text-brandIndigo-500 animate-pulse">●</span>}
-                    Detect shelf items & borders...
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-300">
-                    {scanStep >= 3 ? <span className="text-emerald-400">✓</span> : scanStep >= 2 ? <span className="text-brandIndigo-500 animate-pulse">●</span> : <span className="text-slate-600">○</span>}
-                    Calculate linear share metrics...
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* View Header */}
-            <div className="p-5 border-b border-[#1f2937] flex items-center justify-between flex-wrap gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-brandIndigo-400" />
-                  Instore Intelligence
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">Real-time linear share-of-shelf and stock indicators</p>
-              </div>
-
-              <button
-                onClick={handleShelfScan}
-                disabled={isScanning || shelfItems.length === 0}
-                className="pulse-button-glow px-4 py-2 bg-gradient-to-r from-brandIndigo-600 to-indigo-500 hover:from-brandIndigo-500 hover:to-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/25 disabled:opacity-50 disabled:cursor-not-allowed transition duration-200"
-              >
-                <Sparkles className="w-4 h-4" />
-                Run AI Shelf Scan
-              </button>
-            </div>
-
-            {/* View Body */}
-            <div className="p-6 flex-1 overflow-y-auto space-y-8">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                  <RefreshCw className="w-8 h-8 animate-spin text-brandIndigo-500 mb-2" />
-                  <p className="text-xs font-medium">Synchronizing shelf data...</p>
-                </div>
-              ) : (
-                categories.map(category => (
-                  <div key={category} className="space-y-3.5">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-brandIndigo-400/90 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-brandIndigo-500 rounded-full" />
-                      {category}
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {shelfItems
-                        .filter(item => item.category === category)
-                        .map(item => {
-                          // Badge color config
-                          let badgeBg = '';
-                          let badgeText = '';
-                          let badgeLabel = '';
-                          if (item.oosStatus === 'in_stock') {
-                            badgeBg = 'bg-emerald-950/50 border-emerald-800/40';
-                            badgeText = 'text-emerald-400';
-                            badgeLabel = 'In Stock';
-                          } else if (item.oosStatus === 'low_stock') {
-                            badgeBg = 'bg-amber-950/50 border-amber-800/40';
-                            badgeText = 'text-amber-400';
-                            badgeLabel = 'Low Stock';
-                          } else {
-                            badgeBg = 'bg-red-950/50 border-red-800/40';
-                            badgeText = 'text-red-400';
-                            badgeLabel = 'Out of Stock';
-                          }
-
-                          return (
-                            <div 
-                              key={item.id} 
-                              className="bg-[#0c1220] border border-[#1f2937] rounded-xl p-4 hover:border-brandIndigo-500/50 hover:shadow-lg hover:shadow-brandIndigo-500/5 transition duration-200 flex flex-col justify-between"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <h4 className="font-semibold text-sm text-white">{item.name}</h4>
-                                  <p className="text-xs text-slate-400 mt-1 font-mono">${item.price.toFixed(2)}</p>
-                                </div>
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${badgeBg} ${badgeText} font-semibold shrink-0`}>
-                                  {badgeLabel}
-                                </span>
-                              </div>
-
-                              <div className="mt-4">
-                                <div className="flex items-center justify-between text-xs mb-1.5">
-                                  <span className="text-slate-400">Share of Shelf</span>
-                                  <span className="font-bold text-white">{item.shareOfShelf}%</span>
-                                </div>
-                                <div className="w-full bg-[#1f2937] rounded-full h-2 overflow-hidden">
-                                  <div 
-                                    className={`h-full rounded-full transition-all duration-700 bg-brandIndigo-500`}
-                                    style={{ width: `${item.shareOfShelf}%` }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          {/* Insight Analytics View */}
-          <section className="lg:col-span-5 bg-[#111827] border border-[#1f2937] rounded-2xl flex flex-col overflow-hidden shadow-lg">
-            {/* View Header */}
-            <div className="p-5 border-b border-[#1f2937]">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-emerald-400" />
-                Sentiment Analytics
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">6-month brand metrics tracking score percentages</p>
-            </div>
-
-            {/* View Body */}
-            <div className="p-6 flex-1 flex flex-col gap-6">
-              {isLoading ? (
-                <div className="flex-1 flex flex-col items-center justify-center h-64 text-slate-400">
-                  <RefreshCw className="w-8 h-8 animate-spin text-emerald-500 mb-2" />
-                  <p className="text-xs font-medium">Plotting timeline...</p>
-                </div>
-              ) : (
-                <>
-                  {/* Recharts Container */}
-                  <div className="w-full h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={sentimentData}
-                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                        <XAxis 
-                          dataKey="date" 
-                          stroke="#94a3b8" 
-                          fontSize={11}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis 
-                          stroke="#94a3b8" 
-                          fontSize={11}
-                          domain={[0, 100]}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend 
-                          verticalAlign="top" 
-                          height={36} 
-                          iconType="circle" 
-                          iconSize={8}
-                          wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }}
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="taste" 
-                          name="Taste"
-                          stroke="#6366f1" 
-                          strokeWidth={2.5}
-                          dot={{ r: 4, strokeWidth: 1 }}
-                          activeDot={{ r: 6 }} 
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="price" 
-                          name="Price"
-                          stroke="#f59e0b" 
-                          strokeWidth={2.5}
-                          dot={{ r: 4, strokeWidth: 1 }}
-                          activeDot={{ r: 6 }} 
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="sustainability" 
-                          name="Sustainability"
-                          stroke="#10b981" 
-                          strokeWidth={2.5}
-                          dot={{ r: 4, strokeWidth: 1 }}
-                          activeDot={{ r: 6 }} 
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* Key Takeaways Section */}
-                  <div className="mt-auto border-t border-[#1f2937] pt-5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3.5 flex items-center gap-1.5">
-                      <Info className="w-3.5 h-3.5 text-brandIndigo-400" />
-                      Key Sentiment Insights
-                    </h3>
-                    
-                    <div className="space-y-3">
-                      <div className="bg-[#0c1220] border border-[#1f2937] p-3.5 rounded-xl flex gap-3">
-                        <TrendingUp className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-semibold text-white">Upward Taste Trend (+9%)</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Consumer sentiment on taste reached {sentimentData[sentimentData.length - 1]?.taste || 87}% in June, showing strong reception of newly updated natural flavors.</p>
-                        </div>
-                      </div>
-
-                      <div className="bg-[#0c1220] border border-[#1f2937] p-3.5 rounded-xl flex gap-3">
-                        <DollarSign className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-semibold text-white">Price Sensitivity Recovery</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Price score bounced to {sentimentData[sentimentData.length - 1]?.price || 66}% in June from a low of 58% in April following localized discount campaigns.</p>
-                        </div>
-                      </div>
-
-                      <div className="bg-[#0c1220] border border-[#1f2937] p-3.5 rounded-xl flex gap-3">
-                        <Leaf className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-semibold text-white">Sustainability High-Watermark</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Sustainability values continue to grow, reaching {sentimentData[sentimentData.length - 1]?.sustainability || 82}% due to oat milk eco-packaging rollout.</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
-
-        </div>
+        <Dashboard 
+          shelfItems={shelfItems}
+          sentimentData={sentimentData}
+          isLoading={isLoading}
+          isScanning={isScanning}
+          scanStep={scanStep}
+          scanCount={scanCount}
+          handleShelfScan={handleShelfScan}
+        />
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-[#1f2937] bg-[#0c1220]/40 py-6 text-center">
-        <p className="text-[11px] text-slate-500 font-medium">© {new Date().getFullYear()} Ravogen FMCG Data Analytics. All rights reserved.</p>
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full px-4 ${toast.visible ? 'animate-slide-up' : 'animate-slide-down'}`}>
+          <div className={`${toast.type === 'error' ? 'bg-rose-500/10 border-rose-500/20 shadow-rose-500/10' : 'bg-white border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]'} backdrop-blur-xl border rounded-xl px-5 py-4 shadow-2xl flex items-center gap-3`}>
+            {toast.type === 'error' ? (
+              <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
+            ) : (
+              <div className="w-2.5 h-2.5 rounded-full bg-ravo-purple animate-pulse shrink-0" />
+            )}
+            <p className={`text-xs font-bold leading-relaxed ${toast.type === 'error' ? 'text-rose-600' : 'text-slate-800'}`}>{toast.message}</p>
+          </div>
+        </div>
+      )}
+
+      <footer className="mt-auto border-t border-slate-200/50 bg-white/40 py-6">
+        <div className="max-w-[1400px] mx-auto px-6 flex items-center justify-between">
+          <p className="text-[11px] text-slate-500 font-medium">© {new Date().getFullYear()} Ravogen FMCG Data Analytics. All rights reserved.</p>
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-ravo-neon" />
+            Shelf Health: <span className={`font-bold tabular-nums ${healthScore >= 70 ? 'text-green-600' : 'text-amber-600'}`}>{isLoading ? '—' : `${healthScore}%`}</span>
+          </div>
+        </div>
       </footer>
     </div>
   );
