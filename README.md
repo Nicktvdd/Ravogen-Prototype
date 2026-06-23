@@ -1,6 +1,12 @@
 # Ravogen Shelf Analyzer Prototype
 
+![Ravogen Dashboard Prototype](docs/assets/screenshot.png)
+
 Welcome to the technical documentation manual for the Ravogen Shelf Analyzer prototype. This monorepo implements a full-stack, enterprise-grade FMCG data analytics system designed to track in-store shelf configuration, analyze competitive pricing, and simulate AI machine vision workflows.
+
+> [!TIP]
+> **Check out the animated demo of the interactive features below:**
+> ![Interactive Demo](docs/assets/demo.webp)
 
 ---
 
